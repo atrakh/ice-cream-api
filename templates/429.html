@@ -1,0 +1,13 @@
+HTTP/1.1 429 Too Many Requests
+Content-Type: text/html
+Retry-After: 3600
+
+<html>
+  <head>
+    <title>Too Many Requests</title>
+  </head>
+  <body>
+    <h1>Too Many Requests</h1>
+    <p>The request could not be completed because the rate limit of {{ limit }} per {{ interval}} has been reached. Please try again in {{ reset }} seconds.</p>
+  </body>
+</html>
