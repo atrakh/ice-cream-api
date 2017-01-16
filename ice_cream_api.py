@@ -46,10 +46,10 @@ def limit_requests(method):
     t = int(time.time())
     key = ip+method+str(t/60)
     current = r.get(key)
-    # rate limit broken
     if current == None:
         current = 0
     header_values = {'429': False, 'limit': limit, 'remaining': limit-int(current)-1, 'reset': 60-t%60}
+    #rate limit exceeded?
     if int(current) >= limit:
         header_values['429'] = True
     else:
