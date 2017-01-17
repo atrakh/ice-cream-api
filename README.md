@@ -11,12 +11,11 @@ Try entering these commands in a terminal evironment to make an API request. <b>
 <b>Get a specific flavor:</b>
 <code>$ curl -v http://atrakh.com/api/v1/flavors/FLAVOR_NAME</code>
 
-
 <b>Create a new flavor:</b>
 <code>$ curl -v -H "Content-Type: application/json" -X POST -d
 '{"name":FLAVOR_NAME, "stock":FLAVOR_AMOUNT}' http://atrakh.com/api/v1/flavors</code>
 
-<b>Create an existing flavor:</b>
+<b>Modify an existing flavor:</b>
 <code>$ curl -v -H "Content-Type: application/json" -X PUT -d
 '{"name":NEW_FLAVOR_NAME, "stock":NEW_FLAVOR_AMOUNT}' http://atrakh.com/api/v1/flavors/FLAVOR_NAME</code>
 
