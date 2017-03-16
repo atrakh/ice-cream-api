@@ -1,21 +1,23 @@
 #!flask/bin/python
-from flask import Flask, jsonify, render_template, make_response, request, abort, url_for
-import redis
-import ldclient
-import time
 import logging
 import sys
+import time
+import ldclient
+import redis
+from flask import (Flask, abort, jsonify, make_response, render_template,
+                   request, url_for)
 
 root = logging.getLogger()
 root.setLevel(logging.INFO)
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
 root.addHandler(ch)
 
 r = redis.StrictRedis(host='localhost', port=6379, db=0)
-ldclient.set_sdk_key('SDK_KEY_HERE')
+ldclient.set_sdk_key('YOUR_SDK_KEY')
 
 app = Flask(__name__)
 
@@ -39,23 +41,25 @@ flavors = [
 ]
 
 # get rate limit (x per minute) from feature flag and enforce it
-# returns a dict containing rate limit values for response and a flag if the limit has been exceeded
-def limit_requests(method):
+# returns a dict containing rate limit values for response and a flag if
+# the limit has been exceeded
+def limit_requests():
     ip = request.remote_addr
-    limit = ldclient.get().variation('api-rate-limiter', {'key': method, 'ip': ip}, False)
+    limit = ldclient.get().variation('api-rate-limiter',
+                                     {'key': request.method, 'ip': ip}, False)
     t = int(time.time())
-    key = ip+method+str(t/60)
+    key = ip + request.method + str(t / 60)
     current = r.get(key)
-    if current == None:
+    if current is None:
         current = 0
-    header_values = {'429': False, 'limit': limit, 'remaining': limit-int(current)-1, 'reset': 60-t%60}
-    #rate limit exceeded?
+    header_values = {'429': False, 'limit': limit,
+                     'remaining': limit - int(current) - 1, 'reset': 60 - t % 60}
     if int(current) >= limit:
         header_values['429'] = True
     else:
         p = r.pipeline()
-        p.incr(key,1)
-        p.expire(key,60)
+        p.incr(key, 1)
+        p.expire(key, 60)
         p.execute()
     return header_values
 
@@ -64,12 +68,13 @@ def has_write_permission():
     ip = request.remote_addr
     return ldclient.get().variation('api-write-permission', {'key': ip, 'ip': ip}, False)
 
-# make our responses readable by humans
+# make the API traversable
 def convert_id_to_uri(flavor):
     new_flavor = {}
     for field in flavor:
         if field == 'id':
-            new_flavor['uri'] = url_for('get_flavor', name = flavor['name'], _external = True)
+            new_flavor['uri'] = url_for('get_flavor', name=flavor[
+                'name'], _external=True)
         else:
             new_flavor[field] = flavor[field]
     return new_flavor
@@ -83,50 +88,49 @@ def create_response(dat, header_values):
     resp.headers['X-Rate-Limit-Reset'] = header_values.get('reset')
     return resp
 
-# Get all flavors
-# Usage: $ curl -v host/api/v1/flavors
+# get all flavors
 @app.route('/api/v1/flavors', methods=['GET'])
 def get_flavors():
-    header_values = limit_requests('GET')
+    header_values = limit_requests()
     if header_values.get('429'):
-        return render_template('429.html', \
-        limit=header_values.get('limit'),\
-        interval='minute',\
-        reset=header_values.get('reset'))
+        return render_template('429.html',
+                               limit=header_values.get('limit'),
+                               interval='minute',
+                               reset=header_values.get('reset'))
     if len(flavors) == 0:
         abort(404)
     dat = jsonify({'flavors': map(convert_id_to_uri, flavors)})
     return create_response(dat, header_values)
 
-# Get a flavor
-# Usage: $ curl -v host/api/v1/flavors/FLAVOR_NAME
+# get a flavor
 @app.route('/api/v1/flavors/<string:name>', methods=['GET'])
 def get_flavor(name):
-    header_values = limit_requests('GET')
+    header_values = limit_requests()
     if header_values.get('429'):
-        return render_template('429.html', \
-        limit=header_values.get('limit'),\
-        interval='minute',\
-        reset=header_values.get('reset'))
-    flavor = [flavor for flavor in flavors if name.lower() == flavor['name'].lower()]
+        return render_template('429.html',
+                               limit=header_values.get('limit'),
+                               interval='minute',
+                               reset=header_values.get('reset'))
+    flavor = [flavor for flavor in flavors if name.lower() == flavor[
+        'name'].lower()]
     if len(flavor) == 0:
         abort(404)
     dat = jsonify({'flavor': convert_id_to_uri(flavor[0])})
     return create_response(dat, header_values)
 
-# Create a flavor
-# Usage: $ curl -v -H "Content-Type: application/json" -X POST -d '{"name":FLAVOR_NAME, "stock":FLAVOR_AMOUNT}' host/api/v1/flavors
+# create a flavor
 @app.route('/api/v1/flavors', methods=['POST'])
 def create_flavor():
-    header_values = limit_requests('POST')
+    header_values = limit_requests()
     if header_values.get('429'):
-        return render_template('429.html', \
-        limit=header_values.get('limit'),\
-        interval='minute',\
-        reset=header_values.get('reset'))
+        return render_template('429.html',
+                               limit=header_values.get('limit'),
+                               interval='minute',
+                               reset=header_values.get('reset'))
     if not has_write_permission():
         abort(403)
-    if len(filter(lambda flavor: flavor['name'] == request.json['name'], flavors)) > 0:
+    name = request.json['name']
+    if len([f for f in flavors if f['name'].lower() == name.lower()]) > 0:
         abort(409)
     try:
         flavor = {
@@ -134,51 +138,49 @@ def create_flavor():
             'name': request.json['name'],
             'stock': request.json['stock']
         }
-    except:
+    except KeyError:
         abort(400)
     flavors.append(flavor)
     dat = jsonify({'flavor': convert_id_to_uri(flavor)})
     return create_response(dat, header_values)
 
-# Modify a flavor
-# Usage: $ curl -v -H "Content-Type: application/json" -X PUT -d '{"name":NEW_FLAVOR_NAME, "stock":NEW_FLAVOR_AMOUNT}' host/api/v1/flavors/FLAVOR_NAME
+# modify a flavor
 @app.route('/api/v1/flavors/<string:name>', methods=['PUT'])
 def update_flavor(name):
-    header_values = limit_requests('PUT')
+    header_values = limit_requests()
     if header_values.get('429'):
-        return render_template('429.html', \
-        limit=header_values.get('limit'),\
-        interval='minute',\
-        reset=header_values.get('reset'))
+        return render_template('429.html',
+                               limit=header_values.get('limit'),
+                               interval='minute',
+                               reset=header_values.get('reset'))
     if not has_write_permission():
         abort(403)
-    flavor = filter(lambda flavor: flavor['name'].lower() == name.lower(), flavors)
+    flavor = [f for f in flavors if f['name'].lower() == name.lower()]
     if len(flavor) == 0:
         abort(404)
     if not request.json:
         abort(400)
-    if 'name' in request.json and type(request.json['name']) != unicode:
+    if 'name' in request.json and not isinstance(request.json['name'], unicode):
         abort(400)
-    if 'stock' in request.json and type(request.json['stock']) is not int:
+    if 'stock' in request.json and not isinstance(request.json['stock'], int):
         abort(400)
     flavor[0]['name'] = request.json.get('name', flavor[0]['name'])
     flavor[0]['stock'] = request.json.get('stock', flavor[0]['stock'])
     dat = jsonify({'flavor': convert_id_to_uri(flavor[0])})
     return create_response(dat, header_values)
 
-# Delete a flavor
-# Usage: $ curl -v -X DELETE host/api/v1/flavors/FLAVOR_NAME
+# delete a flavor
 @app.route('/api/v1/flavors/<string:name>', methods=['DELETE'])
 def delete_flavor(name):
-    header_values = limit_requests('DELETE')
+    header_values = limit_requests()
     if header_values.get('429'):
-        return render_template('429.html', \
-        limit=header_values.get('limit'),\
-        interval='minute',\
-        reset=header_values.get('reset'))
+        return render_template('429.html',
+                               limit=header_values.get('limit'),
+                               interval='minute',
+                               reset=header_values.get('reset'))
     if not has_write_permission():
         abort(403)
-    flavor = filter(lambda flavor: flavor['name'].lower() == name.lower(), flavors)
+    flavor = [f for f in flavors if f['name'].lower() == name.lower()]
     if len(flavor) == 0:
         abort(404)
     flavors.remove(flavor[0])
